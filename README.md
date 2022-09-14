@@ -7,7 +7,7 @@ Initially developed as port for Windows platform of the official novnc launch.sh
 https://github.com/novnc/
 
 ## Prerequisites
-To execute the script chocolatey needs to be installed. Check how to install it here https://chocolatey.org/install.
+To execute the script scoop needs to be installed. Check how to install it here https://scoop.sh/.
 
 ## Instructions
 ### To launch (http novnc server + ws websockify + vnc web client)
