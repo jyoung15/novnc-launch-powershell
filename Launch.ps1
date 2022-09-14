@@ -9,6 +9,8 @@ Param
     [string] $vnc = "localhost:5900"
 )
 
+# $VerbosePreference = "Continue"
+
 Write-Verbose "proxyport = $proxyport"
 Write-Verbose "webport = $webport"
 Write-Verbose "vnc = $vnc"
@@ -26,38 +28,39 @@ function Set-NodeVariables()
     [string] $modulespath = Join-Path $env:APPDATA -ChildPath "\npm\node_modules"
     [Environment]::SetEnvironmentVariable("NODE_PATH", $modulespath, "Machine")
     $currentpath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-    [Environment]::SetEnvironmentVariable("Path", ("{0};{1}" -f $currentpath.ToString(), [Environment]::GetEnvironmentVariable("%NODE_PATH%","Machine")), "Machine")    
+    [Environment]::SetEnvironmentVariable("Path", ("{0};{1}" -f $currentpath.ToString(), [Environment]::GetEnvironmentVariable("%NODE_PATH%","Machine")), "Machine")
     return $currentpath.ToString()
 }
 
 function Install-NodeJs()
 {
     Write-Verbose "Installing nodejs"
-    choco install nodejs.install -y
+    scoop install nodejs curl
+    scoop update nodejs curl
 
-    Update-SessionEnvironment
+    # Update-SessionEnvironment
 
     Write-Verbose "Installing required nodejs modules"
-    npm install -g optimist, policyfile, ws, http-server        
+    npm install -g optimist policyfile ws http-server mime-types
 }
 
 function Get-NoVncSource([string] $tempfolder, [string] $novncfolder)
 {
-    Write-Verbose "Downloading novnc git master repository; $($tempfolder)\novnc.zip"    
-    wget https://github.com/novnc/noVNC/archive/master.zip -OutFile "$($tempfolder)\novnc.zip"
-    
+    Write-Verbose "Downloading novnc git master repository; $($tempfolder)\novnc.zip"
+    curl -L -o "$($tempfolder)\novnc.zip" https://github.com/novnc/noVNC/archive/master.zip
+
     Write-Verbose "Extracting novnc source in $($novncfolder)"
-    Add-Type -AssemblyName "System.IO.Compression.FileSystem"    
+    Add-Type -AssemblyName "System.IO.Compression.FileSystem"
     [System.IO.Compression.ZipFile]::ExtractToDirectory("$($tempfolder)\novnc.zip", "$($webfolder)")
 }
 
 function Get-WebSockifySource([string] $tempfolder, [string] $websockifyfolder)
 {
     Write-Verbose "Downloading websockify git master repository; $($tempfolder)\websockify.zip"
-    wget https://github.com/novnc/websockify/archive/master.zip -OutFile "$($tempfolder)\websockify.zip"
+    curl -L -o "$($tempfolder)\websockify.zip" https://github.com/novnc/websockify-js/archive/master.zip
 
     Write-Verbose "Extracting novnc source in $($websockifyfolder)"
-    Add-Type -AssemblyName "System.IO.Compression.FileSystem"    
+    Add-Type -AssemblyName "System.IO.Compression.FileSystem"
     [System.IO.Compression.ZipFile]::ExtractToDirectory("$($tempfolder)\websockify.zip", "$($webfolder)")
 }
 
@@ -75,10 +78,11 @@ function Start-NoVncWebServer([string] $novncfolder, [string] $webport)
 
 function Start-WebSockifyProxy([string] $websockifyfolder, [string] $proxyport, [string] $vnc)
 {
-    [string]$websockifyjs = Join-Path $($websockifyfolder) -ChildPath "other\js\websockify.js" 
+    [string]$websockifyjs = Join-Path $($websockifyfolder) -ChildPath "websockify\websockify.js"
+    Write-Verbose "node $($websockifyjs) localhost:$($proxyport) $($vnc)"
     [string]$arguments = "node $($websockifyjs) localhost:$($proxyport) $($vnc)"
     Write-Verbose "Starting websockify proxy from port localhost:$($proxyport) to $($vnc)"
-    $websockifyprocess = Start-Process powershell -ArgumentList $arguments -PassThru 
+    $websockifyprocess = Start-Process powershell -ArgumentList $arguments -PassThru # -NoNewWindow
     If ($websockifyprocess -eq $null)
     {
         throw "Failed to start websockify proxy"
@@ -86,13 +90,13 @@ function Start-WebSockifyProxy([string] $websockifyfolder, [string] $proxyport, 
     return $websockifyprocess
 }
 
-function Import-ChocolateyModules()
+function Import-ScoopModules()
 {
-    Write-Verbose "Importing chocolatey helper functions for powershell"
-    Import-Module "$env:ChocolateyInstall\helpers\chocolateyInstaller.psm1"
+    Write-Verbose "Importing scoop helper functions for powershell"
+    Import-Module "$env:ScoopInstall\helpers\scoopInstaller.psm1"
 }
 
-Try 
+Try
 {
     If (Find-ListeningPort -port $proxyport)
     {
@@ -103,15 +107,15 @@ Try
         throw "Port $webport in use. Try -webport PORT"
     }
 
-    Import-ChocolateyModules
+    # Import-ScoopModules
     Install-NodeJs
-    [string] $currentpath = Set-NodeVariables
-    Update-SessionEnvironment 
+    # [string] $currentpath = Set-NodeVariables
+    # Update-SessionEnvironment
 
-    $tempfolder = New-Item -ItemType directory "$($PWD)\$(get-date -f yyyyMMddHHmmss)" 
+    $tempfolder = New-Item -ItemType directory "$($PWD)\$(get-date -f yyyyMMddHHmmss)"
     [string] $webfolder = Join-Path $tempfolder -ChildPath "\web"
     [string] $novncfolder = Join-Path $tempfolder -ChildPath "\web\noVNC-master"
-    [string] $websockifyfolder = Join-Path $tempfolder -ChildPath "\web\websockify-master"
+    [string] $websockifyfolder = Join-Path $tempfolder -ChildPath "\web\websockify-js-master"
 
     Get-NoVncSource -tempfolder $tempfolder -novncfolder $novncfolder
     Get-WebSockifySource -tempfolder $tempfolder -websockifyfolder $websockifyfolder
@@ -124,18 +128,18 @@ Try
 
     Wait-Process -InputObject $novncprocess, $websockifyprocess
 }
-Catch 
+Catch
 {
     Write-Error $_
 }
-Finally 
+Finally
 {
     If ($currentpath -ne $null)
     {
         Write-Verbose "Reverting system path variable value"
         [Environment]::SetEnvironmentVariable("Path", $currentpath, "Machine")
     }
-    If (Test-Path $tempfolder)
+    If (($tempfolder -ne $null) -and (Test-Path $tempfolder))
     {
         Remove-Item $tempfolder -Recurse
     }
